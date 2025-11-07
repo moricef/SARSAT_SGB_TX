@@ -217,25 +217,25 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
     // Generate I/Q samples with OQPSK (Q delayed by Tc/2)
     // OQPSK: Q channel is delayed by half a chip period (Tc/2)
     // MATLAB reference: comm.OQPSKModulator with PulseShape="Half sine"
-    int q_delay_samples = OQPSK_SAMPLES_PER_CHIP / 2;  // 8 samples for SPS=16
-    uint32_t total_samples = 38400 * OQPSK_SAMPLES_PER_CHIP;  // Exact: 614,400 samples
+    int q_delay_samples = OQPSK_SAMPLES_PER_CHIP / 2;  // 32 samples for SPS=64
+    // Allocate extra space for Q channel delay to avoid clipping
+    uint32_t total_samples = 38400 * OQPSK_SAMPLES_PER_CHIP + q_delay_samples;
 
     // Initialize all samples to zero
     for (uint32_t i = 0; i < total_samples; i++) {
         iq_samples[i] = 0.0f + I * 0.0f;
     }
 
-    printf("  Applying half-sine pulse shaping (MATLAB compatible)...\n");
+    printf("  Applying rectangular pulse (no pulse shaping, MATLAB-compatible)...\n");
 
-    // Generate I-channel with half-sine pulse shaping (no delay)
+    // Generate I-channel with rectangular pulse (no pulse shaping, MATLAB-compatible)
     for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
         float chip_val = (float)i_prn[chip_idx];
         int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP;
 
-        // Apply half-sine pulse: sin(π×n/SPS) for n = 0..SPS-1
+        // Rectangular pulse: constant value over SPS samples
         for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++) {
-            float pulse_val = sinf(M_PI * (float)s / (float)OQPSK_SAMPLES_PER_CHIP);
-            iq_samples[start_sample + s] += chip_val * pulse_val;
+            iq_samples[start_sample + s] = chip_val;
         }
 
         // Progress indicator every 5000 chips
@@ -245,17 +245,17 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
         }
     }
 
-    // Generate Q-channel with half-sine pulse shaping (delayed by Tc/2)
+    // Generate Q-channel with rectangular pulse (delayed by Tc/2)
+    // Q channel is advanced by q_delay_samples in buffer to create OQPSK offset
     for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
         float chip_val = (float)q_prn[chip_idx];
-        int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP - q_delay_samples;
+        int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP + q_delay_samples;
 
-        // Apply half-sine pulse: sin(π×n/SPS) for n = 0..SPS-1
+        // Rectangular pulse: constant value over SPS samples
         for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++) {
             int sample_idx = start_sample + s;
-            if (sample_idx >= 0 && sample_idx < total_samples) {
-                float pulse_val = sinf(M_PI * (float)s / (float)OQPSK_SAMPLES_PER_CHIP);
-                iq_samples[sample_idx] += I * chip_val * pulse_val;
+            if (sample_idx < total_samples) {
+                iq_samples[sample_idx] += I * chip_val;
             }
         }
 
@@ -265,7 +265,7 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
         }
     }
 
-    printf("  ✓ Half-sine pulse shaping applied\n");
+    printf("  ✓ Rectangular pulse applied (no pulse shaping, MATLAB-compatible)\n");
     printf("  [DEBUG] Total samples generated: %u (OQPSK with Tc/2=%d samples delay)\n",
            total_samples, q_delay_samples);
 
