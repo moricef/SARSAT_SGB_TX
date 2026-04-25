@@ -14,7 +14,28 @@ bin/
 .vscode/
 .idea/
 
-# Test outputs
-test_*.iq
-spectrum_*.png
-signal_*.png
+# Debug binaries
+*.bin
+*.sigmf-data
+*.sigmf-meta
+chips_after_spreading.bin
+tools/chips_after_spreading.bin
+
+# MATLAB exports
+matlab_*/
+matlab_*.bin
+matlab_*.txt
+matlab_*.cf32
+
+# Temporary verification files
+tools/temp_verify_*
+tools/test_frame_*
+
+# Generated WAV files
+*.wav
+
+# SGB corrected outputs
+sgb_corrected.*
+
+docs/*
+docs/

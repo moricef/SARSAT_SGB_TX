@@ -134,26 +134,27 @@ void t018_calculate_bch(const uint8_t *info_bits, uint8_t *parity_bits) {
     memcpy(parity_bits, remainder, BCH_PARITY_BITS);
 }
 
-static uint64_t compute_bch_250_202(const uint8_t *data_202bits) {
-    // BCH computation according to T.018 Appendix B
-    const uint64_t g = BCH_GENERATOR_POLY;
+static uint64_t compute_bch_250_202(const uint8_t *data_202bits) {                                                                                                                                                                                                                       
+       const uint64_t g = 0x1C7EB85DF3C97ULL;  // 49 bits
+       uint64_t remainder = 0;
 
-    // Create 255-bit message: 5 zeros + 202 data + 48 zeros
-    uint8_t message_255[255];
-    memset(message_255, 0, 5);
-    memcpy(message_255 + 5, data_202bits, 202);
-    memset(message_255 + 207, 0, 48);
-
-    // Perform polynomial long division
-    uint64_t remainder = 0;
-    for (int i = 0; i < 255; i++) {
-        remainder = (remainder << 1) | message_255[i];
-        if (remainder & (1ULL << 48)) {
-            remainder ^= g;
-        }
-    }
-    return remainder & 0xFFFFFFFFFFFFULL;
-}
+       // Polynomial division: 202 info bits + 48 zero padding bits
+       // MSB-first processing (matching sgb_bch.py reference)                                                                                                                                                                                                                                                      
+       for (int i = 0; i < 202; i++) {                                                                                                                                                                                                                                                      
+           remainder = (remainder << 1) | data_202bits[i];                                                                                                                                                                                                                                  
+           if (remainder & (1ULL << 48)) {                                                                                                                                                                                                                                                  
+               remainder ^= g;                                                                                                                                                                                                                                                              
+           }                                                                                                                                                                                                                                                                                
+       }                                                                                                                                                                                                                                                                                    
+       // 48 additional shifts for the zero padding bits                                                                                                                                                                                                                           
+       for (int i = 0; i < 48; i++) {                                                                                                                                                                                                                                                       
+           remainder <<= 1;                                                                                                                                                                                                                                                                 
+           if (remainder & (1ULL << 48)) {                                                                                                                                                                                                                                                  
+               remainder ^= g;                                                                                                                                                                                                                                                              
+           }                                                                                                                                                                                                                                                                                
+       }                                                                                                                                                                                                                                                                                    
+       return remainder & 0xFFFFFFFFFFFFULL;                                                                                                                                                                                                                                                
+   }
 
 uint8_t t018_verify_bch(const uint8_t *frame_bits) {
     // Extract information bits (skip 2-bit header)

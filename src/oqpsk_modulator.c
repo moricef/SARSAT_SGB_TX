@@ -279,26 +279,14 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
     }
     printf("  [NORM] Signal normalized by 1/√2 for AGC compatibility (power=1.0)\n");
 
-    // Apply π/4 QPSK rotation (required by T.018 demodulator)
-    // Multiply by exp(jπ/4) = (1+j)/√2 = 0.7071 + j0.7071
-    float complex rotation = cexpf(I * M_PI / 4.0f);
-    for (uint32_t i = 0; i < total_samples; i++) {
-        iq_samples[i] *= rotation;
-    }
-    printf("  [ROT] π/4 rotation applied for OQPSK constellation\n");
-
     free(i_prn);
     free(q_prn);
 
     printf("✓ Modulation complete: %u samples generated\n", total_samples);
 
-    // IMPORTANT: T.018/COSPAS-SARSAT does NOT specify pulse shaping
-    // Per MATLAB reference (page 5): "COSPAS-SARSAT specification does not
-    // specify the type of pulse shaping to be used"
-    // Demodulator expects unfiltered QPSK symbols at chip rate
-    // RRC filtering DISABLED to match demodulator expectations
-
-    /* RRC FILTER DISABLED - Keep code for reference
+    // Apply RRC pulse shaping to reduce out-of-band emissions
+    // T.018 does not mandate a specific pulse shape; the RRC filter
+    // improves spectral efficiency while remaining decodable
     printf("Applying RRC pulse shaping filter...\n");
 
     float complex *unfiltered = malloc(total_samples * sizeof(float complex));
@@ -316,9 +304,6 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
     free(unfiltered);
 
     printf("✓ RRC filtering complete\n");
-    */
-
-    printf("✓ Signal generated WITHOUT RRC filtering (T.018 spec compliant)\n");
 
     return total_samples;
 }
