@@ -64,8 +64,12 @@ static void build_transmission_frame(const uint8_t *frame_bits, uint8_t *output_
         output_frame[i] = 0;
     }
 
-    // Copy 252-bit frame (2 header + 250 data)
-    memcpy(&output_frame[PREAMBLE_BITS], frame_bits, 250);  // Copy 250 data bits
+    /* T.018 §2.2.5: transmit the 250-bit BCH frame (202 info + 48 BCH).
+     * t018_build_frame() lays it out at frame_bits[2..251]; the 2 leading
+     * bits at frame_bits[0..1] are only used for the dec406_hex display
+     * convention (63 hex chars = 2 hex-pad + 250 BCH bits) and are NOT
+     * transmitted on-air. */
+    memcpy(&output_frame[PREAMBLE_BITS], &frame_bits[2], 250);
 }
 
 // =============================================================================

@@ -361,8 +361,8 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
 
     int bit_pos = 0;
 
-    // Bits 1-16: TAC (16 bits)
-    uint16_t tac = beacon_config.test_mode ? 9999 : beacon_config.tac_number;
+    // Bits 1-16: TAC (16 bits) — T.018 requires TAC > 10000
+    uint16_t tac = beacon_config.tac_number;
     write_bits(info_bits, bit_pos, 16, tac);
     bit_pos += 16;
 
@@ -445,9 +445,10 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     // BUILD COMPLETE 252-BIT FRAME
     // =============================================================================
 
-    // Header (2 bits)
-    frame_bits[0] = beacon_config.test_mode ? 1 : 0;  // Test/Exercise flag
-    frame_bits[1] = 0;  // Padding bit
+    // dec406_hex left-pad (2 bits, NOT transmitted on-air, hex format only).
+    // Test/Exercise mode is carried by info bit 43 (Test protocol flag).
+    frame_bits[0] = 0;
+    frame_bits[1] = 0;
 
     // Copy information bits (202 bits)
     memcpy(&frame_bits[2], info_bits, 202);
