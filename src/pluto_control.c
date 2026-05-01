@@ -146,13 +146,22 @@ int pluto_configure_tx(pluto_ctx_t *ctx,
     }
 
     // Set TX hardware gain (PlutoSDR uses attenuation: negative dB)
-    // Range: -89.75 dB to 0 dB (in millidB: -89750 to 0)
-    int32_t hw_gain_mdb = gain_db * 1000;
-    if (hw_gain_mdb > 0) hw_gain_mdb = 0;
-    if (hw_gain_mdb < -89750) hw_gain_mdb = -89750;
+    // Rev.B (AD9363): integer millidB via longlong
+    // Rev.C (AD9364): double dB via iio_channel_attr_write_double
+    // Range: -89.75 dB to 0 dB
+    double hw_gain = (double)gain_db;
+    if (hw_gain > 0.0) hw_gain = 0.0;
+    if (hw_gain < -89.75) hw_gain = -89.75;
 
-    if (set_channel_attr_longlong(tx_chan, "hardwaregain", hw_gain_mdb) < 0) {
-        return -1;
+    int ret = iio_channel_attr_write_double(tx_chan, "hardwaregain", hw_gain);
+    if (ret < 0) {
+        // Fallback: try longlong millidB (Rev.B)
+        int32_t hw_gain_mdb = (int32_t)(hw_gain * 1000.0);
+        ret = iio_channel_attr_write_longlong(tx_chan, "hardwaregain", hw_gain_mdb);
+        if (ret < 0) {
+            fprintf(stderr, "Failed to set hardwaregain: %s\n", strerror(-ret));
+            return -1;
+        }
     }
     ctx->gain_db = gain_db;
 
@@ -184,80 +193,81 @@ int pluto_transmit_iq(pluto_ctx_t *ctx,
         return -1;
     }
 
-    // Transmit in chunks to avoid buffer overflow
-    // PlutoSDR buffer size limit is typically 64k-256k samples
-    const uint32_t CHUNK_SIZE = 65536;  // 64k samples per chunk
+    /* Use a fixed-size kernel buffer matching Pluto's DMA buffer.
+     * The Pluto IIO driver uses 256 kiB buffers by default.
+     * At 2 bytes/sample/channel × 2 channels = 4 bytes/sample,
+     * 256 kiB / 4 = 65536 samples. */
+    const uint32_t BUF_SAMPLES = 65536;
     uint32_t total_sent = 0;
 
-    printf("Transmitting %u samples in chunks of %u...\n", num_samples, CHUNK_SIZE);
+    printf("Transmitting %u samples (buffer %u samples)...\n",
+           num_samples, BUF_SAMPLES);
+
+    /* Create ONE buffer, reuse for all chunks. */
+    ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, BUF_SAMPLES, 0);
+    if (!ctx->tx_buf) {
+        fprintf(stderr, "Failed to create TX buffer\n");
+        return -1;
+    }
 
     while (total_sent < num_samples) {
-        // Calculate chunk size (last chunk may be smaller)
-        uint32_t chunk_samples = (num_samples - total_sent > CHUNK_SIZE) ?
-                                 CHUNK_SIZE : (num_samples - total_sent);
+        uint32_t chunk = num_samples - total_sent;
+        if (chunk > BUF_SAMPLES) chunk = BUF_SAMPLES;
 
-        // Create TX buffer for this chunk
-        ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, chunk_samples, 0);
-        if (!ctx->tx_buf) {
-            fprintf(stderr, "Failed to create TX buffer for chunk at sample %u\n", total_sent);
-            return -1;
-        }
-
-        // Get buffer pointer
+        /* Fill buffer. */
         int16_t *buf = (int16_t *)iio_buffer_start(ctx->tx_buf);
         if (!buf) {
-            fprintf(stderr, "Failed to get buffer pointer for chunk at sample %u\n", total_sent);
+            fprintf(stderr, "Failed to get buffer pointer at sample %u\n", total_sent);
             iio_buffer_destroy(ctx->tx_buf);
             ctx->tx_buf = NULL;
             return -1;
         }
 
-        // Convert float complex to int16 I/Q samples for this chunk
-        // PlutoSDR expects interleaved I/Q: [I0, Q0, I1, Q1, ...]
-        // Range: -2048 to +2047 (12-bit DAC)
-        for (uint32_t i = 0; i < chunk_samples; i++) {
+        for (uint32_t i = 0; i < chunk; i++) {
             float i_val = crealf(iq_samples[total_sent + i]);
             float q_val = cimagf(iq_samples[total_sent + i]);
 
-            // Scale float ±1.0 to int16 ±2047
             int16_t i_sample = (int16_t)(i_val * 2047.0f);
             int16_t q_sample = (int16_t)(q_val * 2047.0f);
 
-            // Clamp to valid range
             if (i_sample > 2047) i_sample = 2047;
             if (i_sample < -2048) i_sample = -2048;
             if (q_sample > 2047) q_sample = 2047;
             if (q_sample < -2048) q_sample = -2048;
 
-            buf[2*i]     = i_sample;  // I
-            buf[2*i + 1] = q_sample;  // Q
+            buf[2*i]     = i_sample;
+            buf[2*i + 1] = q_sample;
         }
 
-        // Push buffer to PlutoSDR
+        /* Pad with zeros to fill the buffer. */
+        for (uint32_t i = chunk; i < BUF_SAMPLES; i++) {
+            buf[2*i]     = 0;
+            buf[2*i + 1] = 0;
+        }
+
+        /* Push — blocks until DMA has consumed the buffer. */
         ssize_t nbytes_tx = iio_buffer_push(ctx->tx_buf);
         if (nbytes_tx < 0) {
-            fprintf(stderr, "TX buffer push failed for chunk at sample %u: %s\n",
+            fprintf(stderr, "TX buffer push failed at sample %u: %s\n",
                     total_sent, strerror(-nbytes_tx));
             iio_buffer_destroy(ctx->tx_buf);
             ctx->tx_buf = NULL;
             return -1;
         }
 
-        // Cleanup buffer
-        iio_buffer_destroy(ctx->tx_buf);
-        ctx->tx_buf = NULL;
+        total_sent += chunk;
 
-        total_sent += chunk_samples;
-
-        // Progress indicator every ~500k samples
-        if (total_sent % 500000 < CHUNK_SIZE) {
+        if (total_sent % 500000 < BUF_SAMPLES) {
             printf("  Transmitted %u/%u samples (%.1f%%)\n",
-                   total_sent, num_samples, (total_sent * 100.0f) / num_samples);
+                   total_sent, num_samples,
+                   (total_sent * 100.0f) / num_samples);
         }
     }
 
-    printf("✓ Transmitted %u I/Q samples total\n", total_sent);
+    iio_buffer_destroy(ctx->tx_buf);
+    ctx->tx_buf = NULL;
 
+    printf("✓ Transmitted %u I/Q samples total\n", total_sent);
     return total_sent;
 }
 
