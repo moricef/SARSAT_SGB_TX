@@ -40,7 +40,7 @@ static void calculate_rrc_coefficients(void) {
     printf("Calculating RRC filter coefficients...\n");
     printf("  Taps: %d\n", RRC_NUM_TAPS);
     printf("  Roll-off: %.2f\n", alpha);
-    printf("  Samples/chip: %.2f\n", RRC_SAMPLES_PER_CHIP);
+    printf("  Samples/chip: %d\n", RRC_SAMPLES_PER_CHIP);
 
     float sum = 0.0f;
 

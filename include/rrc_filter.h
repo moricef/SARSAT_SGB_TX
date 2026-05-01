@@ -22,10 +22,10 @@
 #include <complex.h>
 
 // RRC filter parameters
-#define RRC_NUM_TAPS        65          // Number of filter taps (must be odd, 4-chip span)
+#define RRC_NUM_TAPS        705         // Number of filter taps (must be odd, 11-chip span)
 #define RRC_ROLLOFF         0.5         // Roll-off factor (α)
-#define RRC_SAMPLES_PER_CHIP 16         // 614.4 kHz / 38.4 kHz (integer)
-#define RRC_CENTER_TAP      32          // Center tap index
+#define RRC_SAMPLES_PER_CHIP 64         // 2.4576 MHz / 38.4 kHz (integer)
+#define RRC_CENTER_TAP      352         // Center tap index
 
 // Filter state structure
 typedef struct {
