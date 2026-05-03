@@ -5,7 +5,7 @@
  * Generates I/Q samples for T.018 2nd generation beacons:
  * - OQPSK modulation with Tc/2 offset
  * - DSSS spreading (256 chips/bit)
- * - Sample rate: 614.4 kHz (16 samples/chip)
+ * - Sample rate: 2.4576 MHz (64 samples/chip)
  */
 
 #ifndef OQPSK_MODULATOR_H

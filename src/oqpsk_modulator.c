@@ -5,16 +5,14 @@
  * Complete port from dsPIC33CK implementation:
  * - OQPSK modulation with Tc/2 offset (Q-channel delayed by half chip)
  * - DSSS spreading (256 chips/bit using PRN sequences)
- * - Sample rate: 614.4 kHz (16 samples/chip, integer SPS)
+ * - Sample rate: 2.4576 MHz (64 samples/chip, integer SPS)
  * - Chip rate: 38.4 kchips/s
  * - Data rate: 300 bps
- * - Linear interpolation between chips
- * - RRC pulse shaping filter (α=0.5)
+ * - Half-sine pulse shaping (T.018 compliant, constant envelope)
  */
 
 #include "oqpsk_modulator.h"
 #include "prn_generator.h"
-#include "rrc_filter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -230,46 +228,39 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
         iq_samples[i] = 0.0f + I * 0.0f;
     }
 
-    printf("  Applying rectangular pulse (no pulse shaping, MATLAB-compatible)...\n");
+    printf("  Applying half-sine pulse shaping...\n");
 
-    // Generate I-channel with rectangular pulse (no pulse shaping, MATLAB-compatible)
+    float hsine[OQPSK_SAMPLES_PER_CHIP];
+    for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++)
+        hsine[s] = sinf((float)M_PI * (float)s / (float)OQPSK_SAMPLES_PER_CHIP);
+
     for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
         float chip_val = (float)i_prn[chip_idx];
         int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP;
 
-        // Rectangular pulse: constant value over SPS samples
-        for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++) {
-            iq_samples[start_sample + s] = chip_val;
-        }
+        for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++)
+            iq_samples[start_sample + s] = chip_val * hsine[s];
 
-        // Progress indicator every 5000 chips
-        if ((chip_idx + 1) % 5000 == 0) {
+        if ((chip_idx + 1) % 5000 == 0)
             printf("  I-channel: %d/38400 chips (samples: %u)\n",
                    chip_idx + 1, start_sample + OQPSK_SAMPLES_PER_CHIP);
-        }
     }
 
-    // Generate Q-channel with rectangular pulse (delayed by Tc/2)
-    // Q channel is advanced by q_delay_samples in buffer to create OQPSK offset
     for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
         float chip_val = (float)q_prn[chip_idx];
         int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP + q_delay_samples;
 
-        // Rectangular pulse: constant value over SPS samples
         for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++) {
             int sample_idx = start_sample + s;
-            if (sample_idx < total_samples) {
-                iq_samples[sample_idx] += I * chip_val;
-            }
+            if (sample_idx < (int)total_samples)
+                iq_samples[sample_idx] += I * chip_val * hsine[s];
         }
 
-        // Progress indicator every 5000 chips
-        if ((chip_idx + 1) % 5000 == 0) {
+        if ((chip_idx + 1) % 5000 == 0)
             printf("  Q-channel: %d/38400 chips\n", chip_idx + 1);
-        }
     }
 
-    printf("  ✓ Rectangular pulse applied (no pulse shaping, MATLAB-compatible)\n");
+    printf("  ✓ Half-sine pulse shaping applied\n");
     printf("  [DEBUG] Total samples generated: %u (OQPSK with Tc/2=%d samples delay)\n",
            total_samples, q_delay_samples);
 
@@ -287,27 +278,6 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
     free(q_prn);
 
     printf("✓ Modulation complete: %u samples generated\n", total_samples);
-
-    // Apply RRC pulse shaping to reduce out-of-band emissions
-    // T.018 does not mandate a specific pulse shape; the RRC filter
-    // improves spectral efficiency while remaining decodable
-    printf("Applying RRC pulse shaping filter...\n");
-
-    float complex *unfiltered = malloc(total_samples * sizeof(float complex));
-    if (!unfiltered) {
-        fprintf(stderr, "Failed to allocate memory for RRC filtering\n");
-        return total_samples;
-    }
-
-    memcpy(unfiltered, iq_samples, total_samples * sizeof(float complex));
-
-    rrc_state_t rrc_state;
-    rrc_init(&rrc_state);
-    rrc_filter(&rrc_state, unfiltered, iq_samples, total_samples);
-
-    free(unfiltered);
-
-    printf("✓ RRC filtering complete\n");
 
     return total_samples;
 }
