@@ -248,13 +248,15 @@ static void set_rotating_field(uint8_t *info_bits, rotating_field_type_t rf_type
             write_bits(info_bits, 164, 11, last_pos_minutes);     // T.018 bits 165-175
             write_bits(info_bits, 175, 10, altitude_code);        // T.018 bits 176-185
 
-            // For Test Mode: Generate dynamic rotating field (bits 186-202)
+            // For Test Mode: Generate dynamic rotating field (bits 186-200)
             if (beacon_config.test_mode) {
                 uint8_t lfsr_state = elt_state.transmission_count & 0xFF;
-                for (int i = 0; i < 17; i++) {  // 17 bits (T.018 bits 186-202)
+                for (int i = 0; i < 15; i++) {  // 15 bits (T.018 bits 186-200)
                     lfsr_state = lfsr_8bit(lfsr_state);
                     info_bits[185 + i] = lfsr_state & 0x01;
                 }
+                info_bits[200] = 0;  // Spare bit (T.018 bit 201)
+                info_bits[201] = 0;  // Spare bit (T.018 bit 202)
             } else {
                 write_bits(info_bits, 185, 17, 0);  // Exercise mode: spare bits
             }
