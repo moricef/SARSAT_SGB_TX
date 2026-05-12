@@ -145,6 +145,15 @@ int pluto_configure_tx(pluto_ctx_t *ctx,
         return -1;
     }
 
+    // Read back actual rate (AD9361 PLL may round)
+    long long actual_rate = 0;
+    iio_channel_attr_read_longlong(tx_chan, "sampling_frequency", &actual_rate);
+    if (actual_rate != (long long)sample_rate) {
+        fprintf(stderr, "WARNING: requested %u Hz but AD9361 set %lld Hz (%.2f%% off)\n",
+                sample_rate, actual_rate,
+                100.0 * ((double)actual_rate - (double)sample_rate) / (double)sample_rate);
+    }
+
     // Set TX hardware gain (PlutoSDR uses attenuation: negative dB)
     // Rev.B (AD9363): integer millidB via longlong
     // Rev.C (AD9364): double dB via iio_channel_attr_write_double
@@ -193,82 +202,68 @@ int pluto_transmit_iq(pluto_ctx_t *ctx,
         return -1;
     }
 
-    /* Use a fixed-size kernel buffer matching Pluto's DMA buffer.
-     * The Pluto IIO driver uses 256 kiB buffers by default.
-     * At 2 bytes/sample/channel × 2 channels = 4 bytes/sample,
-     * 256 kiB / 4 = 65536 samples. */
-    const uint32_t BUF_SAMPLES = 65536;
-    uint32_t total_sent = 0;
+    /* Cyclic buffer: DMA loops continuously. Fill buffer once,
+     * enable TX, let it run for burst duration, disable TX. */
+    printf("Cyclic TX: %u samples (%.3f s)\n",
+           num_samples, (double)num_samples / PLUTO_SAMPLE_RATE);
 
-    printf("Transmitting %u samples (buffer %u samples)...\n",
-           num_samples, BUF_SAMPLES);
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", true);
 
-    /* Create ONE buffer, reuse for all chunks. */
-    ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, BUF_SAMPLES, 0);
+    /* Pad to DMA-aligned size */
+    uint32_t buf_sz = num_samples;
+    if (buf_sz & 255) buf_sz = (buf_sz + 256) & ~255;
+
+    ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, buf_sz, false);
     if (!ctx->tx_buf) {
-        fprintf(stderr, "Failed to create TX buffer\n");
-        return -1;
+        fprintf(stderr, "Failed to create TX buffer (%u samples)\n", buf_sz);
+        goto fail;
     }
 
-    while (total_sent < num_samples) {
-        uint32_t chunk = num_samples - total_sent;
-        if (chunk > BUF_SAMPLES) chunk = BUF_SAMPLES;
+    int16_t *buf = (int16_t *)iio_buffer_start(ctx->tx_buf);
+    if (!buf) {
+        fprintf(stderr, "Failed to get buffer pointer\n");
+        goto fail;
+    }
 
-        /* Fill buffer. */
-        int16_t *buf = (int16_t *)iio_buffer_start(ctx->tx_buf);
-        if (!buf) {
-            fprintf(stderr, "Failed to get buffer pointer at sample %u\n", total_sent);
-            iio_buffer_destroy(ctx->tx_buf);
-            ctx->tx_buf = NULL;
-            return -1;
-        }
-
-        for (uint32_t i = 0; i < chunk; i++) {
-            float i_val = crealf(iq_samples[total_sent + i]);
-            float q_val = cimagf(iq_samples[total_sent + i]);
-
-            int16_t i_sample = (int16_t)(i_val * 2047.0f);
-            int16_t q_sample = (int16_t)(q_val * 2047.0f);
-
-            if (i_sample > 2047) i_sample = 2047;
-            if (i_sample < -2048) i_sample = -2048;
-            if (q_sample > 2047) q_sample = 2047;
-            if (q_sample < -2048) q_sample = -2048;
-
-            buf[2*i]     = i_sample;
-            buf[2*i + 1] = q_sample;
-        }
-
-        /* Pad with zeros to fill the buffer. */
-        for (uint32_t i = chunk; i < BUF_SAMPLES; i++) {
-            buf[2*i]     = 0;
-            buf[2*i + 1] = 0;
-        }
-
-        /* Push — blocks until DMA has consumed the buffer. */
-        ssize_t nbytes_tx = iio_buffer_push(ctx->tx_buf);
-        if (nbytes_tx < 0) {
-            fprintf(stderr, "TX buffer push failed at sample %u: %s\n",
-                    total_sent, strerror(-nbytes_tx));
-            iio_buffer_destroy(ctx->tx_buf);
-            ctx->tx_buf = NULL;
-            return -1;
-        }
-
-        total_sent += chunk;
-
-        if (total_sent % 500000 < BUF_SAMPLES) {
-            printf("  Transmitted %u/%u samples (%.1f%%)\n",
-                   total_sent, num_samples,
-                   (total_sent * 100.0f) / num_samples);
+    for (uint32_t i = 0; i < buf_sz; i++) {
+        if (i < num_samples) {
+            float iv = crealf(iq_samples[i]), qv = cimagf(iq_samples[i]);
+            int16_t is = (int16_t)(iv * 2047.0f), qs = (int16_t)(qv * 2047.0f);
+            if (is > 2047) is = 2047; if (is < -2048) is = -2048;
+            if (qs > 2047) qs = 2047; if (qs < -2048) qs = -2048;
+            buf[2*i] = is; buf[2*i+1] = qs;
+        } else {
+            buf[2*i] = 0; buf[2*i+1] = 0;
         }
     }
+
+    /* Enable TX, push cyclic buffer, wait, disable TX */
+    iio_device_attr_write_bool(ctx->tx_dev, "en", true);
+    printf("  TX enabled, pushing cyclic buffer...\n");
+
+    ssize_t nbytes_tx = iio_buffer_push(ctx->tx_buf);
+    if (nbytes_tx < 0) {
+        fprintf(stderr, "TX buffer push failed: %s\n", strerror(-nbytes_tx));
+        iio_device_attr_write_bool(ctx->tx_dev, "en", false);
+        goto fail;
+    }
+
+    usleep((useconds_t)(num_samples * 1000000ULL / PLUTO_SAMPLE_RATE) + 50000);
+
+    iio_device_attr_write_bool(ctx->tx_dev, "en", false);
+    printf("  TX disabled\n");
 
     iio_buffer_destroy(ctx->tx_buf);
     ctx->tx_buf = NULL;
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", false);
 
-    printf("✓ Transmitted %u I/Q samples total\n", total_sent);
-    return total_sent;
+    printf("✓ Burst complete: %u samples\n", num_samples);
+    return (int)num_samples;
+
+fail:
+    if (ctx->tx_buf) { iio_buffer_destroy(ctx->tx_buf); ctx->tx_buf = NULL; }
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", false);
+    return -1;
 }
 
 // =============================================================================
