@@ -17,6 +17,7 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <unistd.h>
 
 // =============================================================================
 // HELPER FUNCTIONS
