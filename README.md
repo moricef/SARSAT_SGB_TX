@@ -200,6 +200,15 @@ SARSAT_SGB/
 
 ---
 
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Fabrice Morel.
+
+This licence covers the source code. It does **not** authorise any RF
+transmission — see the legal notice above.
+
+---
+
 ## Author
 
 **Fabrice Morel (F4MLV)**, radio amateur and member of **FNRASEC /
