@@ -5,7 +5,7 @@
  * Generates I/Q samples for T.018 2nd generation beacons:
  * - OQPSK modulation with Tc/2 offset
  * - DSSS spreading (256 chips/bit)
- * - Sample rate: 2.5 MHz (65.1 samples/chip)
+ * - Sample rate: 2.4576 MHz (64 samples/chip)
  */
 
 #ifndef OQPSK_MODULATOR_H
@@ -16,8 +16,8 @@
 
 // T.018 modulation parameters (Section 2.2.3)
 #define OQPSK_CHIP_RATE         38400       // 38.4 kchips/s per channel
-#define OQPSK_SAMPLE_RATE       2500000     // 2.5 MHz (PlutoSDR validated with FGB)
-#define OQPSK_SAMPLES_PER_CHIP  65.104167   // 2.5M / 38.4k = 65.1 samples/chip
+#define OQPSK_SAMPLE_RATE       2457600     // 2.4576 MHz (64 samples/chip, PlutoSDR compatible)
+#define OQPSK_SAMPLES_PER_CHIP  64          // 2.4576M / 38.4k = 64 samples/chip (integer)
 #define OQPSK_DATA_RATE         300         // 300 bps total
 #define OQPSK_CHIPS_PER_BIT     256         // 256 chips per bit (spreading factor)
 
@@ -26,7 +26,7 @@
 #define OQPSK_MESSAGE_BITS      250         // Message data
 #define OQPSK_TOTAL_BITS        300         // Preamble + Message
 #define OQPSK_BITS_PER_CHANNEL  150         // 150 bits on I, 150 bits on Q (parallel)
-#define OQPSK_TOTAL_SAMPLES     2600000     // 38,400 chips × 65.1 samp/chip + margin
+#define OQPSK_TOTAL_SAMPLES     5000000     // 76,800 chips × 64 samp/chip + margin (4.9M + margin)
 
 // OQPSK modulator state
 typedef struct {
@@ -46,7 +46,7 @@ void oqpsk_init(oqpsk_state_t *state);
 /**
  * @brief Generate I/Q samples for complete T.018 frame
  * @param frame_bits 252-bit frame (2 header + 250 data)
- * @param iq_samples Output buffer (~2.5M complex samples)
+ * @param iq_samples Output buffer (~1.3M complex samples)
  * @return Number of samples generated
  *
  * T.018 Section 2.2.3.b: Implements odd/even bit separation
@@ -65,7 +65,7 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
  * @param bit Data bit (0 or 1)
  * @param i_chips I-channel PRN (256 chips)
  * @param q_chips Q-channel PRN (256 chips)
- * @param iq_samples Output buffer (~16666 samples)
+ * @param iq_samples Output buffer (4096 samples)
  * @param state Modulator state
  * @return Number of samples generated
  */

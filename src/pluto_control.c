@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
+#include <unistd.h>
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -144,14 +146,32 @@ int pluto_configure_tx(pluto_ctx_t *ctx,
         return -1;
     }
 
-    // Set TX hardware gain (PlutoSDR uses attenuation: negative dB)
-    // Range: -89.75 dB to 0 dB (in millidB: -89750 to 0)
-    int32_t hw_gain_mdb = gain_db * 1000;
-    if (hw_gain_mdb > 0) hw_gain_mdb = 0;
-    if (hw_gain_mdb < -89750) hw_gain_mdb = -89750;
+    // Read back actual rate (AD9361 PLL may round)
+    long long actual_rate = 0;
+    iio_channel_attr_read_longlong(tx_chan, "sampling_frequency", &actual_rate);
+    if (actual_rate != (long long)sample_rate) {
+        fprintf(stderr, "WARNING: requested %u Hz but AD9361 set %lld Hz (%.2f%% off)\n",
+                sample_rate, actual_rate,
+                100.0 * ((double)actual_rate - (double)sample_rate) / (double)sample_rate);
+    }
 
-    if (set_channel_attr_longlong(tx_chan, "hardwaregain", hw_gain_mdb) < 0) {
-        return -1;
+    // Set TX hardware gain (PlutoSDR uses attenuation: negative dB)
+    // Rev.B (AD9363): integer millidB via longlong
+    // Rev.C (AD9364): double dB via iio_channel_attr_write_double
+    // Range: -89.75 dB to 0 dB
+    double hw_gain = (double)gain_db;
+    if (hw_gain > 0.0) hw_gain = 0.0;
+    if (hw_gain < -89.75) hw_gain = -89.75;
+
+    int ret = iio_channel_attr_write_double(tx_chan, "hardwaregain", hw_gain);
+    if (ret < 0) {
+        // Fallback: try longlong millidB (Rev.B)
+        int32_t hw_gain_mdb = (int32_t)(hw_gain * 1000.0);
+        ret = iio_channel_attr_write_longlong(tx_chan, "hardwaregain", hw_gain_mdb);
+        if (ret < 0) {
+            fprintf(stderr, "Failed to set hardwaregain: %s\n", strerror(-ret));
+            return -1;
+        }
     }
     ctx->gain_db = gain_db;
 
@@ -183,81 +203,68 @@ int pluto_transmit_iq(pluto_ctx_t *ctx,
         return -1;
     }
 
-    // Transmit in chunks to avoid buffer overflow
-    // PlutoSDR buffer size limit is typically 64k-256k samples
-    const uint32_t CHUNK_SIZE = 65536;  // 64k samples per chunk
-    uint32_t total_sent = 0;
+    /* Cyclic buffer: DMA loops continuously. Fill buffer once,
+     * enable TX, let it run for burst duration, disable TX. */
+    printf("Cyclic TX: %u samples (%.3f s)\n",
+           num_samples, (double)num_samples / PLUTO_SAMPLE_RATE);
 
-    printf("Transmitting %u samples in chunks of %u...\n", num_samples, CHUNK_SIZE);
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", true);
 
-    while (total_sent < num_samples) {
-        // Calculate chunk size (last chunk may be smaller)
-        uint32_t chunk_samples = (num_samples - total_sent > CHUNK_SIZE) ?
-                                 CHUNK_SIZE : (num_samples - total_sent);
+    /* Pad to DMA-aligned size */
+    uint32_t buf_sz = num_samples;
+    if (buf_sz & 255) buf_sz = (buf_sz + 256) & ~255;
 
-        // Create TX buffer for this chunk
-        ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, chunk_samples, 0);
-        if (!ctx->tx_buf) {
-            fprintf(stderr, "Failed to create TX buffer for chunk at sample %u\n", total_sent);
-            return -1;
-        }
+    ctx->tx_buf = iio_device_create_buffer(ctx->tx_dev, buf_sz, false);
+    if (!ctx->tx_buf) {
+        fprintf(stderr, "Failed to create TX buffer (%u samples)\n", buf_sz);
+        goto fail;
+    }
 
-        // Get buffer pointer
-        int16_t *buf = (int16_t *)iio_buffer_start(ctx->tx_buf);
-        if (!buf) {
-            fprintf(stderr, "Failed to get buffer pointer for chunk at sample %u\n", total_sent);
-            iio_buffer_destroy(ctx->tx_buf);
-            ctx->tx_buf = NULL;
-            return -1;
-        }
+    int16_t *buf = (int16_t *)iio_buffer_start(ctx->tx_buf);
+    if (!buf) {
+        fprintf(stderr, "Failed to get buffer pointer\n");
+        goto fail;
+    }
 
-        // Convert float complex to int16 I/Q samples for this chunk
-        // PlutoSDR expects interleaved I/Q: [I0, Q0, I1, Q1, ...]
-        // Range: -2048 to +2047 (12-bit DAC)
-        for (uint32_t i = 0; i < chunk_samples; i++) {
-            float i_val = crealf(iq_samples[total_sent + i]);
-            float q_val = cimagf(iq_samples[total_sent + i]);
-
-            // Scale float ±1.0 to int16 ±2047
-            int16_t i_sample = (int16_t)(i_val * 2047.0f);
-            int16_t q_sample = (int16_t)(q_val * 2047.0f);
-
-            // Clamp to valid range
-            if (i_sample > 2047) i_sample = 2047;
-            if (i_sample < -2048) i_sample = -2048;
-            if (q_sample > 2047) q_sample = 2047;
-            if (q_sample < -2048) q_sample = -2048;
-
-            buf[2*i]     = i_sample;  // I
-            buf[2*i + 1] = q_sample;  // Q
-        }
-
-        // Push buffer to PlutoSDR
-        ssize_t nbytes_tx = iio_buffer_push(ctx->tx_buf);
-        if (nbytes_tx < 0) {
-            fprintf(stderr, "TX buffer push failed for chunk at sample %u: %s\n",
-                    total_sent, strerror(-nbytes_tx));
-            iio_buffer_destroy(ctx->tx_buf);
-            ctx->tx_buf = NULL;
-            return -1;
-        }
-
-        // Cleanup buffer
-        iio_buffer_destroy(ctx->tx_buf);
-        ctx->tx_buf = NULL;
-
-        total_sent += chunk_samples;
-
-        // Progress indicator every ~500k samples
-        if (total_sent % 500000 < CHUNK_SIZE) {
-            printf("  Transmitted %u/%u samples (%.1f%%)\n",
-                   total_sent, num_samples, (total_sent * 100.0f) / num_samples);
+    for (uint32_t i = 0; i < buf_sz; i++) {
+        if (i < num_samples) {
+            float iv = crealf(iq_samples[i]), qv = cimagf(iq_samples[i]);
+            int16_t is = (int16_t)(iv * 2047.0f), qs = (int16_t)(qv * 2047.0f);
+            if (is > 2047) is = 2047; if (is < -2048) is = -2048;
+            if (qs > 2047) qs = 2047; if (qs < -2048) qs = -2048;
+            buf[2*i] = is; buf[2*i+1] = qs;
+        } else {
+            buf[2*i] = 0; buf[2*i+1] = 0;
         }
     }
 
-    printf("✓ Transmitted %u I/Q samples total\n", total_sent);
+    /* Enable TX, push cyclic buffer, wait, disable TX */
+    iio_device_attr_write_bool(ctx->tx_dev, "en", true);
+    printf("  TX enabled, pushing cyclic buffer...\n");
 
-    return total_sent;
+    ssize_t nbytes_tx = iio_buffer_push(ctx->tx_buf);
+    if (nbytes_tx < 0) {
+        fprintf(stderr, "TX buffer push failed: %s\n", strerror(-nbytes_tx));
+        iio_device_attr_write_bool(ctx->tx_dev, "en", false);
+        goto fail;
+    }
+
+    usleep((useconds_t)(num_samples * 1000000ULL / PLUTO_SAMPLE_RATE) + 50000);
+
+    iio_device_attr_write_bool(ctx->tx_dev, "en", false);
+    printf("  TX disabled\n");
+
+    iio_buffer_destroy(ctx->tx_buf);
+    ctx->tx_buf = NULL;
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", false);
+
+    printf("✓ Burst complete: %u samples\n", num_samples);
+    return (int)num_samples;
+
+fail:
+    if (ctx->tx_buf) { iio_buffer_destroy(ctx->tx_buf); ctx->tx_buf = NULL; }
+    iio_device_attr_write_bool(ctx->tx_dev, "cyclic", false);
+    return -1;
 }
 
 // =============================================================================
@@ -391,15 +398,87 @@ uint32_t pluto_get_sample_rate(const pluto_ctx_t *ctx) {
 // FILE I/O FUNCTIONS
 // =============================================================================
 
+/**
+ * @brief Create SigMF metadata file
+ * @param base_filename Base filename (without extension)
+ * @param num_samples Number of samples
+ * @param sample_rate Sample rate in Hz
+ * @return 0 on success, -1 on error
+ */
+static int create_sigmf_meta(const char *base_filename, uint32_t num_samples, uint32_t sample_rate) {
+    char meta_filename[512];
+    snprintf(meta_filename, sizeof(meta_filename), "%s.sigmf-meta", base_filename);
+
+    FILE *fp = fopen(meta_filename, "w");
+    if (!fp) {
+        fprintf(stderr, "Failed to create metadata file '%s': %s\n",
+                meta_filename, strerror(errno));
+        return -1;
+    }
+
+    // Get current time in ISO 8601 format
+    time_t now = time(NULL);
+    struct tm *tm_info = gmtime(&now);
+    char datetime[64];
+    strftime(datetime, sizeof(datetime), "%Y-%m-%dT%H:%M:%SZ", tm_info);
+
+    // Write SigMF metadata in JSON format
+    fprintf(fp, "{\n");
+    fprintf(fp, "    \"global\": {\n");
+    fprintf(fp, "        \"core:datatype\": \"cf32_le\",\n");
+    fprintf(fp, "        \"core:sample_rate\": %u,\n", sample_rate);
+    fprintf(fp, "        \"core:version\": \"1.0.0\",\n");
+    fprintf(fp, "        \"core:description\": \"COSPAS-SARSAT T.018 2nd generation beacon test frame with OQPSK modulation, DSSS spreading (256 chips/bit), half-sine pulse shaping, SPS=%u\",\n", sample_rate / 38400);
+    fprintf(fp, "        \"core:author\": \"SARSAT_SGB Generator\",\n");
+    fprintf(fp, "        \"core:hw\": \"Software generated (baseband)\"\n");
+    fprintf(fp, "    },\n");
+    fprintf(fp, "    \"captures\": [\n");
+    fprintf(fp, "        {\n");
+    fprintf(fp, "            \"core:sample_start\": 0,\n");
+    fprintf(fp, "            \"core:frequency\": 0,\n");
+    fprintf(fp, "            \"core:datetime\": \"%s\"\n", datetime);
+    fprintf(fp, "        }\n");
+    fprintf(fp, "    ],\n");
+    fprintf(fp, "    \"annotations\": [\n");
+    fprintf(fp, "        {\n");
+    fprintf(fp, "            \"core:sample_start\": 0,\n");
+    fprintf(fp, "            \"core:sample_count\": %u,\n", num_samples);
+    fprintf(fp, "            \"core:comment\": \"Complete T.018 frame: 50-bit preamble + 250-bit message (300 bits total), 38400 chips/channel, %.3f second duration\"\n", (float)num_samples / sample_rate);
+    fprintf(fp, "        }\n");
+    fprintf(fp, "    ]\n");
+    fprintf(fp, "}\n");
+
+    fclose(fp);
+    return 0;
+}
+
 int pluto_save_iq_file(const char *filename,
                        const float complex *iq_samples,
-                       uint32_t num_samples) {
+                       uint32_t num_samples,
+                       uint32_t sample_rate) {
     if (!filename || !iq_samples || num_samples == 0) {
         fprintf(stderr, "Invalid parameters for file save\n");
         return -1;
     }
 
-    FILE *fp = fopen(filename, "wb");
+    // Extract base filename and create .sigmf-data filename
+    char base_filename[512];
+    char data_filename[512];
+
+    // Remove extension if present
+    const char *dot = strrchr(filename, '.');
+    if (dot && (strcmp(dot, ".iq") == 0 || strcmp(dot, ".sigmf-data") == 0)) {
+        size_t len = dot - filename;
+        strncpy(base_filename, filename, len);
+        base_filename[len] = '\0';
+    } else {
+        strncpy(base_filename, filename, sizeof(base_filename) - 1);
+        base_filename[sizeof(base_filename) - 1] = '\0';
+    }
+
+    snprintf(data_filename, sizeof(data_filename), "%s.sigmf-data", base_filename);
+
+    FILE *fp = fopen(data_filename, "wb");
     if (!fp) {
         fprintf(stderr, "Failed to open output file '%s': %s\n",
                 filename, strerror(errno));
@@ -422,13 +501,19 @@ int pluto_save_iq_file(const char *filename,
 
     fclose(fp);
 
+    // Create SigMF metadata file
+    if (create_sigmf_meta(base_filename, num_samples, sample_rate) < 0) {
+        fprintf(stderr, "Warning: Failed to create SigMF metadata file\n");
+    }
+
     // Calculate file size
     size_t file_size = num_samples * 2 * sizeof(float);
     printf("✓ Saved %u I/Q samples to '%s' (%.2f KB)\n",
-           num_samples, filename, file_size / 1024.0);
-    printf("  Format: 32-bit float interleaved I/Q\n");
-    printf("  Sample rate: 2.5 MHz\n");
-    printf("  Duration: %.3f ms\n", (num_samples / 2500000.0) * 1000.0);
+           num_samples, data_filename, file_size / 1024.0);
+    printf("  Format: SigMF (cf32_le - 32-bit float interleaved I/Q)\n");
+    printf("  Sample rate: %.1f kHz\n", sample_rate / 1000.0);
+    printf("  Duration: %.3f ms\n", (num_samples / (float)sample_rate) * 1000.0);
+    printf("  Metadata: %s.sigmf-meta\n", base_filename);
 
     return 0;
 }

@@ -18,8 +18,8 @@
 
 // PlutoSDR default parameters
 #define PLUTO_DEFAULT_URI       "ip:192.168.2.1"
-#define PLUTO_SAMPLE_RATE       2500000     // 2.5 MHz (same as FGB, validated)
-#define PLUTO_BANDWIDTH         1000000     // 1 MHz RF bandwidth
+#define PLUTO_SAMPLE_RATE       2457600     // 2.4576 MHz (64 samples/chip, PlutoSDR compatible)
+#define PLUTO_BANDWIDTH         200000      // 200 kHz RF bandwidth (signal BW ~58 kHz)
 #define PLUTO_DEFAULT_FREQ      403000000   // 403 MHz (training)
 #define PLUTO_DEFAULT_GAIN_DB   -10         // Conservative TX gain
 
@@ -88,14 +88,18 @@ void pluto_cleanup(pluto_ctx_t *ctx);
 void pluto_print_info(const pluto_ctx_t *ctx);
 
 /**
- * @brief Save I/Q samples to file (GNU Radio compatible format)
- * @param filename Output filename (.iq extension recommended)
+ * @brief Save I/Q samples to file in SigMF format
+ * @param filename Output filename (.sigmf-data extension will be used)
  * @param iq_samples Complex I/Q samples
  * @param num_samples Number of samples
+ * @param sample_rate Sampling rate in Hz
  * @return 0 on success, -1 on error
+ *
+ * Creates both .sigmf-data (binary IQ) and .sigmf-meta (JSON metadata) files
  */
 int pluto_save_iq_file(const char *filename,
                        const float complex *iq_samples,
-                       uint32_t num_samples);
+                       uint32_t num_samples,
+                       uint32_t sample_rate);
 
 #endif // PLUTO_CONTROL_H

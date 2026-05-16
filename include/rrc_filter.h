@@ -8,10 +8,10 @@
  *
  * Parameters:
  * - Chip rate: 38.4 kchips/s
- * - Sample rate: 2.5 MHz (PlutoSDR)
- * - Samples/chip: 65.1
+ * - Sample rate: 614.4 kHz (PlutoSDR)
+ * - Samples/chip: 16 (integer SPS)
  * - Roll-off (α): 0.5 (standard for OQPSK)
- * - Filter taps: 129 (odd for symmetry, ~2 chip periods)
+ * - Filter taps: 65 (odd for symmetry, 4 chip span)
  */
 
 #ifndef RRC_FILTER_H
@@ -22,10 +22,10 @@
 #include <complex.h>
 
 // RRC filter parameters
-#define RRC_NUM_TAPS        129         // Number of filter taps (must be odd)
+#define RRC_NUM_TAPS        705         // Number of filter taps (must be odd, 11-chip span)
 #define RRC_ROLLOFF         0.5         // Roll-off factor (α)
-#define RRC_SAMPLES_PER_CHIP 65.104167  // 2.5 MHz / 38.4 kHz
-#define RRC_CENTER_TAP      64          // Center tap index
+#define RRC_SAMPLES_PER_CHIP 64         // 2.4576 MHz / 38.4 kHz (integer)
+#define RRC_CENTER_TAP      352         // Center tap index
 
 // Filter state structure
 typedef struct {

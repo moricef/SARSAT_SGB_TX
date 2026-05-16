@@ -134,26 +134,27 @@ void t018_calculate_bch(const uint8_t *info_bits, uint8_t *parity_bits) {
     memcpy(parity_bits, remainder, BCH_PARITY_BITS);
 }
 
-static uint64_t compute_bch_250_202(const uint8_t *data_202bits) {
-    // BCH computation according to T.018 Appendix B
-    const uint64_t g = BCH_GENERATOR_POLY;
+static uint64_t compute_bch_250_202(const uint8_t *data_202bits) {                                                                                                                                                                                                                       
+       const uint64_t g = 0x1C7EB85DF3C97ULL;  // 49 bits
+       uint64_t remainder = 0;
 
-    // Create 255-bit message: 5 zeros + 202 data + 48 zeros
-    uint8_t message_255[255];
-    memset(message_255, 0, 5);
-    memcpy(message_255 + 5, data_202bits, 202);
-    memset(message_255 + 207, 0, 48);
-
-    // Perform polynomial long division
-    uint64_t remainder = 0;
-    for (int i = 0; i < 255; i++) {
-        remainder = (remainder << 1) | message_255[i];
-        if (remainder & (1ULL << 48)) {
-            remainder ^= g;
-        }
-    }
-    return remainder & 0xFFFFFFFFFFFFULL;
-}
+       // Polynomial division: 202 info bits + 48 zero padding bits
+       // MSB-first processing (matching sgb_bch.py reference)                                                                                                                                                                                                                                                      
+       for (int i = 0; i < 202; i++) {                                                                                                                                                                                                                                                      
+           remainder = (remainder << 1) | data_202bits[i];                                                                                                                                                                                                                                  
+           if (remainder & (1ULL << 48)) {                                                                                                                                                                                                                                                  
+               remainder ^= g;                                                                                                                                                                                                                                                              
+           }                                                                                                                                                                                                                                                                                
+       }                                                                                                                                                                                                                                                                                    
+       // 48 additional shifts for the zero padding bits                                                                                                                                                                                                                           
+       for (int i = 0; i < 48; i++) {                                                                                                                                                                                                                                                       
+           remainder <<= 1;                                                                                                                                                                                                                                                                 
+           if (remainder & (1ULL << 48)) {                                                                                                                                                                                                                                                  
+               remainder ^= g;                                                                                                                                                                                                                                                              
+           }                                                                                                                                                                                                                                                                                
+       }                                                                                                                                                                                                                                                                                    
+       return remainder & 0xFFFFFFFFFFFFULL;                                                                                                                                                                                                                                                
+   }
 
 uint8_t t018_verify_bch(const uint8_t *frame_bits) {
     // Extract information bits (skip 2-bit header)
@@ -247,13 +248,15 @@ static void set_rotating_field(uint8_t *info_bits, rotating_field_type_t rf_type
             write_bits(info_bits, 164, 11, last_pos_minutes);     // T.018 bits 165-175
             write_bits(info_bits, 175, 10, altitude_code);        // T.018 bits 176-185
 
-            // For Test Mode: Generate dynamic rotating field (bits 186-202)
+            // For Test Mode: Generate dynamic rotating field (bits 186-200)
             if (beacon_config.test_mode) {
                 uint8_t lfsr_state = elt_state.transmission_count & 0xFF;
-                for (int i = 0; i < 17; i++) {  // 17 bits (T.018 bits 186-202)
+                for (int i = 0; i < 15; i++) {  // 15 bits (T.018 bits 186-200)
                     lfsr_state = lfsr_8bit(lfsr_state);
                     info_bits[185 + i] = lfsr_state & 0x01;
                 }
+                info_bits[200] = 0;  // Spare bit (T.018 bit 201)
+                info_bits[201] = 0;  // Spare bit (T.018 bit 202)
             } else {
                 write_bits(info_bits, 185, 17, 0);  // Exercise mode: spare bits
             }
@@ -360,8 +363,8 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
 
     int bit_pos = 0;
 
-    // Bits 1-16: TAC (16 bits)
-    uint16_t tac = beacon_config.test_mode ? 9999 : beacon_config.tac_number;
+    // Bits 1-16: TAC (16 bits) — T.018 requires TAC > 10000
+    uint16_t tac = beacon_config.tac_number;
     write_bits(info_bits, bit_pos, 16, tac);
     bit_pos += 16;
 
@@ -444,9 +447,10 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     // BUILD COMPLETE 252-BIT FRAME
     // =============================================================================
 
-    // Header (2 bits)
-    frame_bits[0] = beacon_config.test_mode ? 1 : 0;  // Test/Exercise flag
-    frame_bits[1] = 0;  // Padding bit
+    // dec406_hex left-pad (2 bits, NOT transmitted on-air, hex format only).
+    // Test/Exercise mode is carried by info bit 43 (Test protocol flag).
+    frame_bits[0] = 0;
+    frame_bits[1] = 0;
 
     // Copy information bits (202 bits)
     memcpy(&frame_bits[2], info_bits, 202);

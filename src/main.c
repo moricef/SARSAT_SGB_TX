@@ -248,7 +248,7 @@ int transmit_beacon(const app_config_t *config) {
     if (config->file_mode) {
         // Save to file
         printf("\n--- Saving to File ---\n");
-        result = pluto_save_iq_file(config->output_file, iq_samples, num_samples);
+        result = pluto_save_iq_file(config->output_file, iq_samples, num_samples, OQPSK_SAMPLE_RATE);
     } else {
         // Transmit via PlutoSDR
         printf("\n--- Transmitting via PlutoSDR ---\n");

@@ -5,14 +5,16 @@
  * Complete port from dsPIC33CK implementation:
  * - OQPSK modulation with Tc/2 offset (Q-channel delayed by half chip)
  * - DSSS spreading (256 chips/bit using PRN sequences)
- * - Sample rate: 2.4576 MHz (64 samples/chip, integer SPS)
+ * - Sample rate: 2.5 MHz (65.1 samples/chip)
  * - Chip rate: 38.4 kchips/s
  * - Data rate: 300 bps
- * - Half-sine pulse shaping (T.018 compliant, constant envelope)
+ * - Linear interpolation between chips
+ * - RRC pulse shaping filter (α=0.5)
  */
 
 #include "oqpsk_modulator.h"
 #include "prn_generator.h"
+#include "rrc_filter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,12 +64,8 @@ static void build_transmission_frame(const uint8_t *frame_bits, uint8_t *output_
         output_frame[i] = 0;
     }
 
-    /* T.018 §2.2.5: transmit the 250-bit BCH frame (202 info + 48 BCH).
-     * t018_build_frame() lays it out at frame_bits[2..251]; the 2 leading
-     * bits at frame_bits[0..1] are only used for the dec406_hex display
-     * convention (63 hex chars = 2 hex-pad + 250 BCH bits) and are NOT
-     * transmitted on-air. */
-    memcpy(&output_frame[PREAMBLE_BITS], &frame_bits[2], 250);
+    // Copy 252-bit frame (2 header + 250 data)
+    memcpy(&output_frame[PREAMBLE_BITS], frame_bits, 250);  // Copy 250 data bits
 }
 
 // =============================================================================
@@ -105,9 +103,9 @@ uint32_t oqpsk_modulate_bit(uint8_t bit,
         sample_accumulator -= num_samples;
 
         for (int s = 0; s < num_samples; s++) {
-            // Safety check (each bit generates 4,096 samples: 256 chips × 16 samp/chip)
-            if (sample_idx >= 5000) {
-                fprintf(stderr, "OVERFLOW in oqpsk_modulate_bit: sample_idx=%u (max 4096)\n", sample_idx);
+            // Safety check (each bit generates ~16,666 samples: 256 chips × 65.1 samp/chip)
+            if (sample_idx >= 18000) {
+                fprintf(stderr, "OVERFLOW in oqpsk_modulate_bit: sample_idx=%u (max ~16666)\n", sample_idx);
                 return sample_idx;
             }
 
@@ -217,67 +215,92 @@ uint32_t oqpsk_modulate_frame(const uint8_t *frame_bits,
     }
 
     // Generate I/Q samples with OQPSK (Q delayed by Tc/2)
-    // OQPSK: Q channel is delayed by half a chip period (Tc/2)
-    // MATLAB reference: comm.OQPSKModulator with PulseShape="Half sine"
-    int q_delay_samples = OQPSK_SAMPLES_PER_CHIP / 2;  // 32 samples for SPS=64
-    // Allocate extra space for Q channel delay to avoid clipping
-    uint32_t total_samples = 38400 * OQPSK_SAMPLES_PER_CHIP + q_delay_samples;
-
-    // Initialize all samples to zero
-    for (uint32_t i = 0; i < total_samples; i++) {
-        iq_samples[i] = 0.0f + I * 0.0f;
-    }
-
-    printf("  Applying half-sine pulse shaping...\n");
-
-    float hsine[OQPSK_SAMPLES_PER_CHIP];
-    for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++)
-        hsine[s] = sinf((float)M_PI * (float)s / (float)OQPSK_SAMPLES_PER_CHIP);
+    uint32_t total_samples = 0;
+    float sample_accumulator = 0.0f;
+    float prev_i_chip = 0.0f;
+    float prev_q_chip = 0.0f;
 
     for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
-        float chip_val = (float)i_prn[chip_idx];
-        int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP;
+        float curr_i_chip = (float)i_prn[chip_idx];
+        float curr_q_chip = (float)q_prn[chip_idx];
 
-        for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++)
-            iq_samples[start_sample + s] = chip_val * hsine[s];
+        // Calculate number of samples for this chip
+        sample_accumulator += OQPSK_SAMPLES_PER_CHIP;
+        int num_samples = (int)sample_accumulator;
+        sample_accumulator -= num_samples;
 
-        if ((chip_idx + 1) % 5000 == 0)
-            printf("  I-channel: %d/38400 chips (samples: %u)\n",
-                   chip_idx + 1, start_sample + OQPSK_SAMPLES_PER_CHIP);
-    }
+        for (int s = 0; s < num_samples; s++) {
+            if (total_samples >= OQPSK_TOTAL_SAMPLES) {
+                fprintf(stderr, "OVERFLOW: sample_idx=%u\n", total_samples);
+                free(i_prn);
+                free(q_prn);
+                return total_samples;
+            }
 
-    for (int chip_idx = 0; chip_idx < 38400; chip_idx++) {
-        float chip_val = (float)q_prn[chip_idx];
-        int start_sample = chip_idx * OQPSK_SAMPLES_PER_CHIP + q_delay_samples;
+            float fraction = (float)s / num_samples;
 
-        for (int s = 0; s < OQPSK_SAMPLES_PER_CHIP; s++) {
-            int sample_idx = start_sample + s;
-            if (sample_idx < (int)total_samples)
-                iq_samples[sample_idx] += I * chip_val * hsine[s];
+            // I-channel: linear interpolation
+            float i_value = prev_i_chip + (curr_i_chip - prev_i_chip) * fraction;
+
+            // Q-channel: OQPSK half-chip delay
+            float q_value;
+            if (fraction < 0.5f) {
+                q_value = prev_q_chip;
+            } else {
+                q_value = prev_q_chip + (curr_q_chip - prev_q_chip) * (fraction - 0.5f) * 2.0f;
+            }
+
+            // Generate complex I/Q sample
+            iq_samples[total_samples++] = i_value + I * q_value;
         }
 
-        if ((chip_idx + 1) % 5000 == 0)
-            printf("  Q-channel: %d/38400 chips\n", chip_idx + 1);
+        prev_i_chip = curr_i_chip;
+        prev_q_chip = curr_q_chip;
+
+        // Progress indicator every 5000 chips
+        if ((chip_idx + 1) % 5000 == 0) {
+            printf("  %d/38400 chips (samples: %u)\n", chip_idx + 1, total_samples);
+        }
+
+        // Debug last chip
+        if (chip_idx == 38399) {
+            printf("  [DEBUG] Last chip (38399): num_samples=%d, total=%u, acc=%.6f\n",
+                   num_samples, total_samples, sample_accumulator);
+        }
     }
 
-    printf("  ✓ Half-sine pulse shaping applied\n");
-    printf("  [DEBUG] Total samples generated: %u (OQPSK with Tc/2=%d samples delay)\n",
-           total_samples, q_delay_samples);
-
-    // Normalize amplitude to match demodulator AGC expectations
-    // Signal has amplitude √2 (I=±1, Q=±1) → power = 2.0
-    // Demodulator AGC normalizes to power = 1.0 → amplitude = 1.0
-    // Divide by √2 to get amplitude = 1.0 (power = 1.0)
-    float normalization = 1.0f / sqrtf(2.0f);
-    for (uint32_t i = 0; i < total_samples; i++) {
-        iq_samples[i] *= normalization;
+    // FIX: Float32 accumulation errors cause 1 missing sample
+    // If accumulator > 0.5, we owe 1 more sample
+    if (sample_accumulator > 0.5f && total_samples < OQPSK_TOTAL_SAMPLES) {
+        // Use last chip values
+        iq_samples[total_samples++] = prev_i_chip + I * prev_q_chip;
+        printf("  [FIX] Added 1 sample to compensate float32 rounding (acc=%.6f)\n",
+               sample_accumulator);
     }
-    printf("  [NORM] Signal normalized by 1/√2 for AGC compatibility (power=1.0)\n");
 
     free(i_prn);
     free(q_prn);
 
     printf("✓ Modulation complete: %u samples generated\n", total_samples);
+
+    // Apply RRC pulse shaping filter
+    printf("Applying RRC pulse shaping filter...\n");
+
+    float complex *unfiltered = malloc(total_samples * sizeof(float complex));
+    if (!unfiltered) {
+        fprintf(stderr, "Failed to allocate memory for RRC filtering\n");
+        return total_samples;
+    }
+
+    memcpy(unfiltered, iq_samples, total_samples * sizeof(float complex));
+
+    rrc_state_t rrc_state;
+    rrc_init(&rrc_state);
+    rrc_filter(&rrc_state, unfiltered, iq_samples, total_samples);
+
+    free(unfiltered);
+
+    printf("✓ RRC filtering complete\n");
 
     return total_samples;
 }
@@ -329,10 +352,9 @@ uint8_t oqpsk_verify_output(const float complex *iq_samples, uint32_t num_sample
 
     printf("  Average power: %.3f\n", avg_power);
 
-    // Expected power with half-sine pulse shaping and OQPSK delay:
-    // ~0.5 for rectangular, ~0.49-0.50 for half-sine (edge effects from Q delay)
-    if (avg_power < 0.45f || avg_power > 2.0f) {
-        printf("✗ Average power out of expected range (0.45-2.0)\n");
+    // Expected power should be around 1.0 (±1 signals)
+    if (avg_power < 0.5f || avg_power > 2.0f) {
+        printf("✗ Average power out of expected range (0.5-2.0)\n");
         return 0;
     }
 
