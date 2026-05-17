@@ -65,6 +65,7 @@ static elt_state_t elt_state = {
 static uint32_t system_time = 0;
 static uint32_t activation_time = 0;
 static uint32_t last_gps_update_time = 0;
+static uint32_t rls_burst_count = 0;    // RLS field #2 / G.008 #0 alternation
 
 // =============================================================================
 // GALOIS FIELD INITIALIZATION
@@ -445,9 +446,17 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     bit_pos += 14;
 
     // Bits 155-202: Rotating Field (48 bits)
+    // T.018 Table 3.10: RLS Type 1 beacons transmit RLS field #2 on odd
+    // bursts and G.008 field #0 on even bursts. Bit 42 stays 1 on both.
     rotating_field_type_t rf_type = beacon_config.rotating_field;
     if (beacon_config.type == BEACON_TYPE_ELT_DT && rf_type != RF_TYPE_RLS) {
         rf_type = RF_TYPE_ELTDT;
+    }
+    if (rf_type == RF_TYPE_RLS) {
+        if (rls_burst_count & 1) {
+            rf_type = RF_TYPE_G008;
+        }
+        rls_burst_count++;
     }
     set_rotating_field(info_bits, rf_type);
 
