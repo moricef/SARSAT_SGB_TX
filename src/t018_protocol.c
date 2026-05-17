@@ -50,7 +50,8 @@ static beacon_config_t beacon_config = {
         .longitude = 5.4,       // Mediterranean
         .altitude = 0,
         .valid = 1
-    }
+    },
+    .rotating_field = RF_TYPE_G008
 };
 
 static elt_state_t elt_state = {
@@ -278,13 +279,20 @@ static void set_rotating_field(uint8_t *info_bits, rotating_field_type_t rf_type
         break;
 
     case RF_TYPE_RLS:
-        // RLS provider and data
+        // T.018 Table 3.5 - RLS Type 1/2 Acknowledgment rotating field
         {
-            uint8_t rls_provider = 0;   // Galileo
-            uint64_t rls_data = 0;       // Placeholder
-
-            write_bits(info_bits, 158, 8, rls_provider);
-            write_bits(info_bits, 166, 36, rls_data);
+            info_bits[158] = 0;  // bit 159: unassigned
+            info_bits[159] = 0;  // bit 160: unassigned
+            info_bits[160] = beacon_config.rls_cap_auto ? 1 : 0;    // bit 161
+            info_bits[161] = beacon_config.rls_cap_manual ? 1 : 0;  // bit 162
+            write_bits(info_bits, 162, 4, 0);                       // bits 163-166: reserved
+            write_bits(info_bits, 166, 3, beacon_config.rls_provider & 0x7);  // bits 167-169
+            info_bits[169] = beacon_config.rls_fb_type1 ? 1 : 0;    // bit 170
+            info_bits[170] = beacon_config.rls_fb_type2 ? 1 : 0;    // bit 171
+            for (int i = 0; i < 20; i++) {                          // bits 172-191: RLM echo
+                info_bits[171 + i] = beacon_config.rls_rlm_bits[i] & 1;
+            }
+            write_bits(info_bits, 191, 11, 0);                      // bits 192-202: unassigned
         }
         break;
 
@@ -381,8 +389,8 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     // Bit 41: Homing device status (0 = not equipped/disabled)
     info_bits[bit_pos++] = 0;
 
-    // Bit 42: RLS capability (0 = not implemented)
-    info_bits[bit_pos++] = 0;
+    // Bit 42: RLS function flag - 1 when an RLS rotating field is emitted
+    info_bits[bit_pos++] = (beacon_config.rotating_field == RF_TYPE_RLS) ? 1 : 0;
 
     // Bit 43: Test protocol flag
     info_bits[bit_pos++] = beacon_config.test_mode ? 1 : 0;
@@ -437,8 +445,8 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     bit_pos += 14;
 
     // Bits 155-202: Rotating Field (48 bits)
-    rotating_field_type_t rf_type = RF_TYPE_G008;  // Default
-    if (beacon_config.type == BEACON_TYPE_ELT_DT) {
+    rotating_field_type_t rf_type = beacon_config.rotating_field;
+    if (beacon_config.type == BEACON_TYPE_ELT_DT && rf_type != RF_TYPE_RLS) {
         rf_type = RF_TYPE_ELTDT;
     }
     set_rotating_field(info_bits, rf_type);

@@ -43,6 +43,14 @@ typedef struct {
     uint8_t valid;              // 1=valid, 0=invalid
 } gps_data_t;
 
+// Rotating field types
+typedef enum {
+    RF_TYPE_G008 = 0,       // G.008 Objective Requirements
+    RF_TYPE_ELTDT = 1,      // ELT-DT Time/Altitude
+    RF_TYPE_RLS = 2,        // RLS Type 1/2 Acknowledgment (T.018 Table 3.5)
+    RF_TYPE_CANCEL = 3      // Cancellation
+} rotating_field_type_t;
+
 // Beacon configuration
 typedef struct {
     beacon_type_t type;         // Beacon type
@@ -51,6 +59,16 @@ typedef struct {
     uint32_t serial_number;     // Unique serial
     uint8_t test_mode;          // 0=Normal, 1=Self-test
     gps_data_t position;        // GPS coordinates
+
+    rotating_field_type_t rotating_field;  // Rotating field to emit
+
+    // RLS rotating field (T.018 Table 3.5), used when rotating_field == RF_TYPE_RLS
+    uint8_t rls_cap_auto;       // bit 7:  Type-1 automatic ack capability
+    uint8_t rls_cap_manual;     // bit 8:  Type-2 manual ack capability
+    uint8_t rls_provider;       // bits 13-15: 1=Galileo
+    uint8_t rls_fb_type1;       // bit 16: RLM Type-1 received
+    uint8_t rls_fb_type2;       // bit 17: RLM Type-2 received
+    uint8_t rls_rlm_bits[20];   // bits 18-37: RLM echo (bits 61-80 of short RLM)
 } beacon_config_t;
 
 /**
@@ -142,16 +160,5 @@ void t018_check_phase_transition(void);
  * @brief Increment transmission count and check transitions
  */
 void t018_increment_transmission_count(void);
-
-// =============================================================================
-// ROTATING FIELD TYPES
-// =============================================================================
-
-typedef enum {
-    RF_TYPE_G008 = 0,       // G.008 Objective Requirements
-    RF_TYPE_ELTDT = 1,      // ELT-DT Time/Altitude
-    RF_TYPE_RLS = 2,        // RLS Provider/Data
-    RF_TYPE_CANCEL = 3      // Cancellation
-} rotating_field_type_t;
 
 #endif // T018_PROTOCOL_H

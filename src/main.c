@@ -53,6 +53,7 @@ typedef struct {
     uint32_t tac_number;
     uint32_t serial_number;
     uint8_t test_mode;
+    rotating_field_type_t rotating_field;
 
     // GPS position
     double latitude;
@@ -79,6 +80,7 @@ static app_config_t default_config = {
     .tac_number = 9999,             // T.021 Table 2.1: SGB type approval testing range
     .serial_number = 999,           // T.021 Annex C Table C.1-1
     .test_mode = 1,                 // Test mode
+    .rotating_field = RF_TYPE_G008, // Default rotating field
 
     .latitude = 43.2,               // Marseille offshore
     .longitude = 5.4,               // Mediterranean
@@ -107,6 +109,7 @@ void print_usage(const char *progname) {
     printf("  -c <code>     Country code (MID) (default: 227 for France)\n");
     printf("  -s <serial>   Serial number (default: 13398)\n");
     printf("  -m <mode>     Test mode: 0=Exercise, 1=Test (default: 1)\n");
+    printf("  -r <field>    Rotating field: g008 or rls (default: g008)\n");
     printf("  -i <sec>      TX interval in seconds (default: 10)\n");
     printf("  -lat <lat>    Latitude in degrees (default: 43.2)\n");
     printf("  -lon <lon>    Longitude in degrees (default: 5.4)\n");
@@ -140,6 +143,17 @@ int parse_args(int argc, char *argv[], app_config_t *config) {
             config->serial_number = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
             config->test_mode = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-r") == 0 && i + 1 < argc) {
+            const char *rf = argv[++i];
+            if (strcmp(rf, "rls") == 0) {
+                config->rotating_field = RF_TYPE_RLS;
+            } else if (strcmp(rf, "g008") == 0) {
+                config->rotating_field = RF_TYPE_G008;
+            } else {
+                fprintf(stderr, "Unknown rotating field: %s\n", rf);
+                print_usage(argv[0]);
+                return -1;
+            }
         } else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
             config->tx_interval_sec = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-lat") == 0 && i + 1 < argc) {
@@ -175,6 +189,7 @@ void print_config(const app_config_t *config) {
     printf("TAC Number:   %u\n", config->tac_number);
     printf("Serial:       %u\n", config->serial_number);
     printf("Mode:         %s\n", config->test_mode ? "TEST" : "EXERCISE");
+    printf("Rotating:     %s\n", config->rotating_field == RF_TYPE_RLS ? "RLS" : "G008");
     printf("\nPosition:\n");
     printf("  Latitude:   %.6f°\n", config->latitude);
     printf("  Longitude:  %.6f°\n", config->longitude);
@@ -214,7 +229,10 @@ int transmit_beacon(const app_config_t *config) {
             .longitude = config->longitude,
             .altitude = config->altitude,
             .valid = 1
-        }
+        },
+        .rotating_field = config->rotating_field,
+        .rls_cap_auto = 1,        // advertise Type-1 automatic ack capability
+        .rls_provider = 1         // Galileo (only valid RLS provider)
     };
 
     // Build 252-bit frame
