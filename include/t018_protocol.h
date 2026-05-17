@@ -28,11 +28,12 @@
 #define BCH_GENERATOR_POLY  0x1C7EB85DF3C97ULL  // g(x) 49 bits
 
 // Beacon types
+// Values match T.018 beacon type field (bits 138-140)
 typedef enum {
-    BEACON_TYPE_EPIRB = 0,      // Emergency Position Indicating Radio Beacon
-    BEACON_TYPE_PLB = 1,        // Personal Locator Beacon
-    BEACON_TYPE_ELT = 2,        // Emergency Locator Transmitter
-    BEACON_TYPE_ELT_DT = 3      // ELT with homing signal
+    BEACON_TYPE_ELT = 0,        // "000" Emergency Locator Transmitter
+    BEACON_TYPE_EPIRB = 1,      // "001" Emergency Position Indicating Radio Beacon
+    BEACON_TYPE_PLB = 2,        // "010" Personal Locator Beacon
+    BEACON_TYPE_ELT_DT = 3      // "011" ELT with homing signal
 } beacon_type_t;
 
 // GPS data structure

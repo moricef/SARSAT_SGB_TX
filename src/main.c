@@ -105,7 +105,7 @@ void print_usage(const char *progname) {
     printf("Options:\n");
     printf("  -f <freq>     Frequency in Hz (default: 403000000)\n");
     printf("  -g <gain>     TX gain in dB (default: -10)\n");
-    printf("  -t <type>     Beacon type: 0=EPIRB, 1=PLB, 2=ELT, 3=ELT-DT (default: 0)\n");
+    printf("  -t <type>     Beacon type: 0=ELT, 1=EPIRB, 2=PLB, 3=ELT-DT (default: 1)\n");
     printf("  -c <code>     Country code (MID) (default: 227 for France)\n");
     printf("  -s <serial>   Serial number (default: 13398)\n");
     printf("  -m <mode>     Test mode: 0=Exercise, 1=Test (default: 1)\n");
@@ -118,13 +118,13 @@ void print_usage(const char *progname) {
     printf("  -o <file>     Save I/Q to file instead of transmitting\n");
     printf("  -h            Show this help\n\n");
     printf("Beacon Types:\n");
-    printf("  0 = EPIRB (Emergency Position Indicating Radio Beacon)\n");
-    printf("  1 = PLB (Personal Locator Beacon)\n");
-    printf("  2 = ELT (Emergency Locator Transmitter)\n");
+    printf("  0 = ELT (Emergency Locator Transmitter)\n");
+    printf("  1 = EPIRB (Emergency Position Indicating Radio Beacon)\n");
+    printf("  2 = PLB (Personal Locator Beacon)\n");
     printf("  3 = ELT-DT (ELT with homing signal)\n\n");
     printf("Examples:\n");
     printf("  %s -f 403000000 -g -10 -m 1\n", progname);
-    printf("  %s -t 0 -c 227 -lat 43.2 -lon 5.4 -i 120\n", progname);
+    printf("  %s -t 1 -c 227 -lat 43.2 -lon 5.4 -i 120\n", progname);
 }
 
 int parse_args(int argc, char *argv[], app_config_t *config) {
@@ -181,7 +181,7 @@ int parse_args(int argc, char *argv[], app_config_t *config) {
 }
 
 void print_config(const app_config_t *config) {
-    const char *beacon_names[] = {"EPIRB", "PLB", "ELT", "ELT-DT"};
+    const char *beacon_names[] = {"ELT", "EPIRB", "PLB", "ELT-DT"};
 
     printf("\n=== T.018 (2G) Beacon Configuration ===\n");
     printf("Beacon Type:  %s\n", beacon_names[config->beacon_type]);
