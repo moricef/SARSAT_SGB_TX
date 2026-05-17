@@ -10,20 +10,24 @@ disque au lieu de la transmettre. Aucun PlutoSDR n'est requis.
 ```
 
 Le programme génère une seule trame puis s'arrête. Toutes les options de
-configuration (`-t`, `-c`, `-s`, `-m`, `-lat`, `-lon`, `-alt`) restent
-valables — voir `README.md`.
+configuration (`-t`, `-c`, `-s`, `-m`, `-r`, `-lat`, `-lon`, `-alt`)
+restent valables — voir `README.md`. Les types `-t` : 0=ELT, 1=EPIRB,
+2=PLB, 3=ELT-DT.
 
 ### Exemples
 
 ```bash
 # EPIRB (France, mode test)
-./bin/sarsat_sgb -o epirb_test.sigmf-data -t 0 -lat 43.2 -lon 5.4
+./bin/sarsat_sgb -o epirb_test.sigmf-data -t 1 -lat 43.2 -lon 5.4
 
 # PLB
-./bin/sarsat_sgb -o plb_test.sigmf-data -t 1 -s 12345 -lat 45.0 -lon 6.0
+./bin/sarsat_sgb -o plb_test.sigmf-data -t 2 -s 12345 -lat 45.0 -lon 6.0
 
 # ELT avec altitude
-./bin/sarsat_sgb -o elt_test.sigmf-data -t 2 -alt 1500 -lat 46.5 -lon 7.2
+./bin/sarsat_sgb -o elt_test.sigmf-data -t 0 -alt 1500 -lat 46.5 -lon 7.2
+
+# EPIRB avec champ tournant RLS Type 1/2
+./bin/sarsat_sgb -o rls_test.sigmf-data -t 1 -r rls -lat 43.2 -lon 5.4
 ```
 
 ## Format du fichier généré

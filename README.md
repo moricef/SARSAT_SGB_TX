@@ -88,10 +88,11 @@ sarsat_sgb [options]
 
   -f <freq>    Frequency in Hz            (default: 403000000)
   -g <gain>    TX gain in dB              (default: 0)
-  -t <type>    0=EPIRB 1=PLB 2=ELT 3=ELT-DT (default: 0)
+  -t <type>    0=ELT 1=EPIRB 2=PLB 3=ELT-DT (default: 1)
   -c <code>    Country code / MID         (default: 227, France)
-  -s <serial>  Serial number              (default: 13398)
+  -s <serial>  Serial number              (default: 999)
   -m <mode>    0=Exercise 1=Test          (default: 1)
+  -r <field>   Rotating field: g008 or rls (default: g008)
   -i <sec>     TX interval in seconds     (default: 10)
   -lat <deg>   Latitude                   (default: 43.2)
   -lon <deg>   Longitude                  (default: 5.4)
@@ -108,7 +109,10 @@ sarsat_sgb [options]
 ./bin/sarsat_sgb -f 403000000 -m 1 -i 10
 
 # ELT simulation, 2-minute interval
-./bin/sarsat_sgb -t 2 -c 227 -lat 45.5 -lon 1.5 -alt 1500 -i 120
+./bin/sarsat_sgb -t 0 -c 227 -lat 45.5 -lon 1.5 -alt 1500 -i 120
+
+# EPIRB with the RLS Type 1/2 rotating field (alternates RLS #2 / G.008 #0)
+./bin/sarsat_sgb -t 1 -r rls -i 10
 
 # Custom PlutoSDR address
 ./bin/sarsat_sgb -t 1 -u ip:192.168.3.1
@@ -122,7 +126,7 @@ With `-o`, one frame is generated and written as a **SigMF pair** instead
 of being transmitted — no PlutoSDR required.
 
 ```bash
-./bin/sarsat_sgb -o beacon.sigmf-data -t 0 -lat 43.2 -lon 5.4
+./bin/sarsat_sgb -o beacon.sigmf-data -t 1 -lat 43.2 -lon 5.4
 ```
 
 | Property | Value |
@@ -145,6 +149,10 @@ The information field carries TAC, serial, country (MID), homing/RLS/test
 flags, GPS position (T.018 Appendix C), vessel ID, beacon type and one
 rotating field (G.008, ELT-DT, RLS or CANCEL). BCH(250,202) corrects up
 to 6 bit errors at the receiver.
+
+With `-r rls` the beacon emits the RLS Type 1/2 acknowledgment field
+(#2) on odd bursts and the G.008 field (#0) on even bursts, per T.018
+Table 3.10; the RLS function flag (bit 42) stays set on both.
 
 ---
 
