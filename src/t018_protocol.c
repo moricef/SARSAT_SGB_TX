@@ -583,6 +583,19 @@ void t018_print_frame(const uint8_t *frame_bits) {
     // BCH verification
     uint8_t bch_valid = t018_verify_bch(frame_bits);
     printf("  BCH: %s\n", bch_valid ? "VALID" : "INVALID");
+
+    // Rotating field identifier (message bits 155-158)
+    int rf_id = (frame_bits[156] << 3) | (frame_bits[157] << 2) |
+                (frame_bits[158] << 1) | frame_bits[159];
+    const char *rf_name;
+    switch (rf_id) {
+    case 0:  rf_name = "G.008 Objective Requirements"; break;
+    case 1:  rf_name = "ELT-DT In-Flight Emergency"; break;
+    case 2:  rf_name = "RLS Type 1/2 Acknowledgment"; break;
+    case 15: rf_name = "Cancellation"; break;
+    default: rf_name = "spare/other"; break;
+    }
+    printf("  Rotating field: #%d (%s)\n", rf_id, rf_name);
 }
 
 // =============================================================================
