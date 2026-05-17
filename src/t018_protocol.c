@@ -381,8 +381,8 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     // Bit 41: Homing device status (0 = not equipped/disabled)
     info_bits[bit_pos++] = 0;
 
-    // Bit 42: RLS capability (1 = enabled)
-    info_bits[bit_pos++] = 1;
+    // Bit 42: RLS capability (0 = not implemented)
+    info_bits[bit_pos++] = 0;
 
     // Bit 43: Test protocol flag
     info_bits[bit_pos++] = beacon_config.test_mode ? 1 : 0;
