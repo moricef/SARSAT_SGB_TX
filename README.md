@@ -20,7 +20,7 @@ or writes it to an I/Q file for off-line analysis.
 | Error correction | BCH(250,202) — 48 parity bits |
 | Frame | 252 bits (2 header + 202 info + 48 BCH) |
 | Burst duration | ~1.0 s (38 400 chips/channel) |
-| Frequency | 403 MHz (training), 406.028 MHz (operational) |
+| Frequency | 431.975 MHz (exercise, 70 cm amateur band) |
 
 The 2.4576 MHz sample rate gives an integer 64 samples/chip and is the
 rate the companion decoder (`DEC406_SGB`) expects.
@@ -86,7 +86,7 @@ Other targets: `make clean`, `make install` (to `/usr/local/bin`),
 ```
 sarsat_sgb [options]
 
-  -f <freq>    Frequency in Hz            (default: 403000000)
+  -f <freq>    Frequency in Hz            (default: 431975000)
   -g <gain>    TX gain in dB              (default: 0)
   -t <type>    0=ELT 1=EPIRB 2=PLB 3=ELT-DT (default: 1)
   -c <code>    Country code / MID         (default: 227, France)
@@ -105,8 +105,8 @@ sarsat_sgb [options]
 ### Examples
 
 ```bash
-# Transmit an EPIRB test beacon (403 MHz, 10 s interval)
-./bin/sarsat_sgb -f 403000000 -m 1 -i 10
+# Transmit an EPIRB test beacon (431.975 MHz, 10 s interval)
+./bin/sarsat_sgb -f 431975000 -m 1 -i 10
 
 # ELT simulation, 2-minute interval
 ./bin/sarsat_sgb -t 0 -c 227 -lat 45.5 -lon 1.5 -alt 1500 -i 120
@@ -188,7 +188,7 @@ SARSAT_SGB/
 
 **For training and testing only.**
 
-- 403.000 MHz — authorised training frequency.
+- 431.975 MHz — exercise frequency, within the 70 cm amateur band.
 - 406.028 MHz — operational frequency, **emergency use only**.
 - Keep TX power low during tests.
 - Unauthorised transmission on 406 MHz can trigger false SAR alarms and

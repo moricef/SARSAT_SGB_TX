@@ -86,7 +86,7 @@ static app_config_t default_config = {
     .longitude = 5.4,               // Mediterranean
     .altitude = 0,
 
-    .frequency = 403000000ULL,      // 403 MHz (training)
+    .frequency = 431975000ULL,      // 431.975 MHz (exercise, 70 cm band)
     .tx_gain_db = 0,                // Maximum power for testing (0 dB attenuation)
     .tx_interval_sec = 10,          // 10 seconds for test mode
 
@@ -103,7 +103,7 @@ void print_usage(const char *progname) {
     printf("COSPAS-SARSAT T.018 (2nd Generation) Beacon Transmitter\n");
     printf("Usage: %s [options]\n\n", progname);
     printf("Options:\n");
-    printf("  -f <freq>     Frequency in Hz (default: 403000000)\n");
+    printf("  -f <freq>     Frequency in Hz (default: 431975000)\n");
     printf("  -g <gain>     TX gain in dB (default: -10)\n");
     printf("  -t <type>     Beacon type: 0=ELT, 1=EPIRB, 2=PLB, 3=ELT-DT (default: 1)\n");
     printf("  -c <code>     Country code (MID) (default: 227 for France)\n");
@@ -123,7 +123,7 @@ void print_usage(const char *progname) {
     printf("  2 = PLB (Personal Locator Beacon)\n");
     printf("  3 = ELT-DT (ELT with homing signal)\n\n");
     printf("Examples:\n");
-    printf("  %s -f 403000000 -g -10 -m 1\n", progname);
+    printf("  %s -f 431975000 -g -10 -m 1\n", progname);
     printf("  %s -t 1 -c 227 -lat 43.2 -lon 5.4 -i 120\n", progname);
 }
 

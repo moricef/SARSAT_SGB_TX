@@ -75,5 +75,5 @@ inspectrum beacon.sigmf-data        # régler Sample rate = 2457600 Hz
 ## Référence
 
 - Spécification : COSPAS-SARSAT T.018
-- Fréquences : 403 MHz (test) / 406.028 MHz (opérationnel)
+- Fréquences : 431,975 MHz (exercice, bande 70 cm) / 406.028 MHz (opérationnel)
 - Récepteur compagnon : `DEC406_SGB`
