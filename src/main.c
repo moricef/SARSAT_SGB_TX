@@ -72,12 +72,12 @@ typedef struct {
     uint8_t file_mode;
 } app_config_t;
 
-// Default configuration (France, EPIRB training)
+// Default configuration (T.021 Annex C type approval test beacon)
 static app_config_t default_config = {
     .beacon_type = BEACON_TYPE_EPIRB,
-    .country_code = 227,            // France MID 227
-    .tac_number = 10001,
-    .serial_number = 13398,
+    .country_code = 201,            // T.021 Annex C: reserved for type approval testing
+    .tac_number = 9999,             // T.021 Table 2.1: SGB type approval testing range
+    .serial_number = 999,           // T.021 Annex C Table C.1-1
     .test_mode = 1,                 // Test mode
 
     .latitude = 43.2,               // Marseille offshore

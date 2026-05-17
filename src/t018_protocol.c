@@ -41,9 +41,9 @@ static const uint8_t generator_poly[] = {
 
 static beacon_config_t beacon_config = {
     .type = BEACON_TYPE_EPIRB,
-    .country_code = 227,        // France MID 227
-    .tac_number = 10001,
-    .serial_number = 13398,
+    .country_code = 201,        // T.021 Annex C: reserved for type approval testing
+    .tac_number = 9999,         // T.021 Table 2.1: SGB type approval testing range
+    .serial_number = 999,       // T.021 Annex C Table C.1-1
     .test_mode = 1,
     .position = {
         .latitude = 43.2,       // Marseille offshore
@@ -363,7 +363,7 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
 
     int bit_pos = 0;
 
-    // Bits 1-16: TAC (16 bits) — T.018 requires TAC > 10000
+    // Bits 1-16: TAC (16 bits)
     uint16_t tac = beacon_config.tac_number;
     write_bits(info_bits, bit_pos, 16, tac);
     bit_pos += 16;
@@ -418,7 +418,7 @@ void t018_build_frame(const beacon_config_t *config, uint8_t *frame_bits) {
     // For EPIRB: MMSI, for ELT: 24-bit address, for PLB: spare
     uint32_t vessel_id = 0;
     if (beacon_config.type == BEACON_TYPE_EPIRB) {
-        vessel_id = 227006600;  // Example French MMSI
+        vessel_id = 63;  // T.021 Annex C Table C.1-1: MMSI = 000111111 decimal
     }
     write_bits(info_bits, bit_pos, 30, vessel_id & 0x3FFFFFFF);
     bit_pos += 30;
