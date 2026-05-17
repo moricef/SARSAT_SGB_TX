@@ -41,7 +41,7 @@ static const uint8_t generator_poly[] = {
 
 static beacon_config_t beacon_config = {
     .type = BEACON_TYPE_EPIRB,
-    .country_code = 201,        // T.021 Annex C: reserved for type approval testing
+    .country_code = 227,        // France MID 227
     .tac_number = 9999,         // T.021 Table 2.1: SGB type approval testing range
     .serial_number = 999,       // T.021 Annex C Table C.1-1
     .test_mode = 1,
